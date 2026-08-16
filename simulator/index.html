@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CarK1 Simulator</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-dot"></span>
+    <h1>CarK1 <em>Simulator</em></h1>
+    <select id="selProfile" class="profile-sel" title="Firmware profile"></select>
+    <span class="sub" id="sketchLabel"></span>
+    <span class="chip" id="srcChip">SIM</span>
+    <span class="chip warn hidden" id="modeBadge"></span>
+  </div>
+  <div class="controls">
+    <button id="btnRun">⏸ Pause</button>
+    <button id="btnReset" title="Re-run setup(): boot beeps, car back to start">⟲ Reset</button>
+    <select id="selSpeed" title="Simulation speed">
+      <option value="0.25">0.25×</option>
+      <option value="0.5">0.5×</option>
+      <option value="1" selected>1×</option>
+      <option value="2">2×</option>
+      <option value="4">4×</option>
+    </select>
+    <span id="profileToggles" class="tgl-group"></span>
+    <label class="tgl"><input type="checkbox" id="chkSound" checked> sound</label>
+    <label class="tgl"><input type="checkbox" id="chkTrail" checked> trail</label>
+    <button id="btnSerial" class="accent" title="Phase 2 — stream live telemetry from the real car over USB">⚡ Connect car</button>
+  </div>
+</header>
+
+<main class="layout">
+
+  <!-- ARENA -->
+  <section class="panel arena-panel">
+    <div class="panel-head">
+      <h2>Arena <span class="dim">500 × 350 cm</span></h2>
+      <div class="btn-row">
+        <button id="btnBox">+ box</button>
+        <button id="btnDrum">+ drum</button>
+        <button id="btnPreset">preset</button>
+        <button id="btnClearObs">clear</button>
+      </div>
+    </div>
+    <canvas id="arena" width="1000" height="700"></canvas>
+    <p class="hint">drag obstacles / car · <b>shift-drag</b> car to aim it · <b>double-click</b> obstacle to delete</p>
+    <div class="stat-row">
+      <div class="stat"><label>sim time</label><b id="statTime">0.0s</b></div>
+      <div class="stat"><label>odometer</label><b id="statOdo">0.00 m</b></div>
+      <div class="stat"><label>collisions</label><b id="statCrash">0</b></div>
+      <div class="stat pins">
+        <label>motor pins <span class="dim">PWM</span></label>
+        <b>D11 fwd <i id="pinFwd">0</i> · D3 rev <i id="pinRev">0</i> · D6 L <i id="pinLeft">0</i> · D5 R <i id="pinRight">0</i></b>
+      </div>
+    </div>
+  </section>
+
+  <!-- RIGHT COLUMN -->
+  <section class="col-right">
+
+    <div class="panel">
+      <div class="panel-head"><h2>OLED · SSD1306 <span class="dim">0x3C</span></h2>
+        <div class="chip-row">
+          <span class="chip peripheral" id="buzzerChip"><span class="beep-dot"></span><span>idle</span> <em>D9</em></span>
+          <span class="chip peripheral dim-chip" title="ArduinoBlue wired on D7/D8 — phone control commented out in loop()">BT: disabled <em>D7/8</em></span>
+        </div>
+      </div>
+      <canvas id="oledCanvas" width="384" height="192"></canvas>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Ultrasonic · HC-SR04 <span class="dim">D12, servo D13</span></h2></div>
+      <div class="sensor-grid">
+        <svg id="servoDial" viewBox="0 0 120 66"></svg>
+        <div class="bars">
+          <div class="bar-row"><label>L</label><div class="bar-track"><div class="bar-fill" id="barL"></div><div class="coll-marker"></div></div><span class="bar-val" id="valL">–</span></div>
+          <div class="bar-row"><label>F</label><div class="bar-track"><div class="bar-fill" id="barF"></div><div class="coll-marker"></div></div><span class="bar-val" id="valF">–</span></div>
+          <div class="bar-row"><label>R</label><div class="bar-track"><div class="bar-fill" id="barR"></div><div class="coll-marker"></div></div><span class="bar-val" id="valR">–</span></div>
+          <p class="hint">99* = sentinel (no echo / out of range) · marker = COLL_DIST</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>State machine</h2><span class="dim" id="stateTime">0.0s</span></div>
+      <div id="stateFlow" class="state-flow"></div>
+      <div id="logList" class="log-list"></div>
+    </div>
+
+  </section>
+
+  <!-- PARAMETERS -->
+  <section class="panel params-panel">
+    <div class="panel-head">
+      <h2>Parameters</h2>
+      <div class="btn-row">
+        <select id="presetSel" title="Apply a saved parameter preset"><option value="">— preset —</option></select>
+        <input id="presetName" class="preset-name" placeholder="preset name…" title="Name the current slider values, then save">
+        <button id="btnPresetSave" title="Save current firmware sliders as a named preset">save</button>
+        <button id="btnPresetDel" title="Delete the selected preset">✕</button>
+        <span class="btn-sep"></span>
+        <button id="btnResetParams">defaults</button>
+        <button id="btnExport" class="accent">⇪ Export #defines</button>
+      </div>
+    </div>
+    <div class="params-cols">
+      <div>
+        <h3>Firmware <span class="dim">mirrors the .ino</span></h3>
+        <div id="fwParams"></div>
+      </div>
+      <div>
+        <h3>Chassis physics <span class="dim">sim only</span></h3>
+        <div id="simParams"></div>
+        <div id="profileNotes"></div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<div id="exportBox" class="modal hidden">
+  <div class="modal-card">
+    <h3>#define block <span class="dim" id="exportNote"></span></h3>
+    <textarea id="exportText" rows="16" spellcheck="false"></textarea>
+    <button id="btnExportClose">close</button>
+  </div>
+</div>
+
+<script type="module" src="main.js"></script>
+</body>
+</html>
