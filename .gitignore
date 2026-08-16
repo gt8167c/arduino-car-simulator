@@ -1,1 +1,11 @@
+# macOS
 .DS_Store
+
+# Arduino IDE artifacts
+*.tmp
+build/
+
+# Redundant archive: architecture_comparison.png and optimization_guide.md are
+# tracked alongside it, and its optimized_car_implementation.ino is the
+# pre-patch car_8feb26.ino (tracked as the .bak).
+car_8feb26/arduino_files.zip
