@@ -60,6 +60,29 @@ Note the default threshold of **3 counts is very sensitive** — anything within
 roughly 15 cm behind reads as blocked. `REAR_CLEAR_MAX` is a slider so you can
 tune it against the arena.
 
+### car_16Jun24 bugs B1–B6 — PATCHED 2026-08-16
+
+Found by porting the sketch here; fixed in `../car_16Jun24/car_16Jun24.ino`,
+which now compiles in **both** build configurations (AUTONOMOUS 41% flash / 26%
+SRAM; Bluetooth path 49% / 35%).
+
+1. **B1/B2** `apds` was a local in `setup()` and `SparkFun_APDS9960` has no
+   `SoftwareWire*` constructor — two hard compile errors. Fixed by dropping
+   `SoftwareWire` and putting the APDS9960 on the **hardware I2C bus the OLED
+   already uses** (APDS 0x39, OLED 0x3C), with `apds` at file scope. This also
+   frees D7/D8, which had collided with `BLUETOOTH_TX`/`RX`.
+2. **B3** with the rear blocked, `moveforwardduration` was used uninitialized —
+   the car drove *into* the obstacle it had just detected. Now initialised to 0
+   and guarded, so it stops instead.
+3. **B4** `uint8_t` ultrasonic read wrapped long echoes → `unsigned int`.
+4. **B5** `stop()` wrote MIN_SPEED to three pins → writes 0.
+5. **B6** Bluetooth mode's rear check never read the sensor, so the rear always
+   looked clear. It now calls `readBackwardLaser()`, which works because the
+   APDS is initialised in both modes.
+
+Measured in the simulator, boxed in front and rear for 10 s: **patched = 0.00 m
+travelled, 0 collisions; pre-patch = 2.45 m, 13 collisions.**
+
 To add a variant (e.g. `car_31mar19`):
 
 1. Copy `profiles/car_8feb26.firmware.js` → `profiles/car_31mar19.firmware.js`

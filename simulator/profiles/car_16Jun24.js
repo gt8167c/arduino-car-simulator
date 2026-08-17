@@ -63,8 +63,8 @@ export default {
   ],
 
   toggles: [
-    { key: 'faithful', label: 'as-written bugs', badge: 'AS-WRITTEN (B3/B4/B5)',
-      title: 'Reproduce the uninitialized duration, uint8 wrap and stop()-creep quirks' },
+    { key: 'faithful', label: 'pre-patch bugs', badge: 'PRE-PATCH FIRMWARE',
+      title: 'Replay the pre-2026-08-16 behaviour: drives forward into the obstacle when the rear is blocked, uint8 wrap, stop() creep' },
   ],
 
   createFirmware(hal) { return new Firmware(hal); },
@@ -92,15 +92,16 @@ export default {
 
   notesHtml: `
     <div class="findings">
-      <h3>⚠ car_16Jun24.ino does not compile yet</h3>
+      <h3>✓ Firmware bugs — patched into the .ino 2026-08-16</h3>
       <ul>
-        <li><b>B1</b> <code>apds</code> is constructed as a <b>local</b> in <code>setup()</code>, so <code>readBackwardLaser()</code> can't see it — <span class="dim">error: 'apds' was not declared in this scope (.ino:226)</span></li>
-        <li><b>B2</b> <code>SparkFun_APDS9960</code> has no <code>SoftwareWire*</code> constructor — <span class="dim">error: no matching function (.ino:104)</span></li>
-        <li><b>B3</b> when the rear is blocked, <code>moveforwardduration</code> is never set, then passed to <code>moveForwardStraight()</code> — the car drives forward <b>into</b> the obstacle it just detected <span class="dim">(.ino:157-166)</span></li>
-        <li><b>B4</b> <code>uint8_t cm</code> then <code>cm &gt; 255</code> — dead test, echoes past 255 cm wrap <span class="dim">(.ino:309-311)</span></li>
-        <li><b>B5</b> <code>stop()</code> writes MIN_SPEED to forward, left <i>and</i> right pins, so it creeps and the steering pins fight <span class="dim">(.ino:328-341)</span></li>
+        <li><b>B1</b> <code>apds</code> was a <b>local</b> in <code>setup()</code>, invisible to <code>readBackwardLaser()</code> → now declared at file scope <span class="dim">(.ino:100)</span></li>
+        <li><b>B2</b> <code>SparkFun_APDS9960</code> has no <code>SoftwareWire*</code> constructor → <b>SoftwareWire dropped</b>; the APDS9960 now shares the OLED's hardware I2C bus (0x39 vs 0x3C), which also frees D7/D8 for Bluetooth <span class="dim">(.ino:31-36)</span></li>
+        <li><b>B3</b> when the rear was blocked, <code>moveforwardduration</code> was never set and still passed to <code>moveForwardStraight()</code> — the car drove <b>into</b> the obstacle it had just detected → initialised to 0 and guarded; it now stops <span class="dim">(.ino:155,195)</span></li>
+        <li><b>B4</b> <code>uint8_t cm</code> made <code>cm &gt; 255</code> dead and wrapped long echoes → reads into <code>unsigned int</code> <span class="dim">(.ino:~330)</span></li>
+        <li><b>B5</b> <code>stop()</code> wrote MIN_SPEED to forward, left <i>and</i> right pins → writes 0; "straight" is 0 too <span class="dim">(.ino:~340)</span></li>
+        <li><b>B6</b> Bluetooth mode's rear check never read the sensor (<code>prevBackwardDist = 0</code> then testing it), so the rear always looked clear → now calls <code>readBackwardLaser()</code>, which works in both modes since the APDS is initialised unconditionally</li>
       </ul>
-      <p class="hint"><b>Suggested fix for B1/B2:</b> the OLED already uses the hardware I2C bus, and the APDS9960 sits at a different address (0x39 vs 0x3C) — so drop <code>SoftwareWire</code> entirely, declare <code>SparkFun_APDS9960 apds;</code> at file scope, and call <code>apds.init()</code> in <code>setup()</code>. That also frees pins 7/8, which currently collide with <code>BLUETOOTH_RX</code>/<code>TX</code>.</p>
-      <p class="hint">Default mode models the <b>intended</b> behavior. Toggle <b>as-written bugs</b> to watch B3/B4/B5.</p>
+      <p class="hint">Both build configurations compile clean on Uno — <b>AUTONOMOUS 41% flash / 26% SRAM</b>, Bluetooth path 49% / 35%. Timing literals promoted to <code>REAR_CLEAR_MAX</code> and <code>CLEAR_PATH_MIN</code>.</p>
+      <p class="hint">Default mode = the <b>patched</b> firmware. Toggle <b>pre-patch bugs</b> in the header to replay the old behaviour.</p>
     </div>`,
 };

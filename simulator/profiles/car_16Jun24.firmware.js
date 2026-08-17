@@ -13,17 +13,18 @@
 // 0 = clear). So `prevBackwardDist < 3` means "almost no reflection, rear is
 // CLEAR, safe to reverse"; >= 3 means something is behind us -> "rear collsn!".
 //
-// KNOWN ISSUES in the .ino, reproduced when SIM.faithful is on (see the notes
-// card in car_16Jun24.js):
-//   B1 `apds` is constructed as a LOCAL in setup(), so readBackwardLaser()
-//      cannot see it -> "'apds' was not declared in this scope" (compile error).
-//   B2 SparkFun_APDS9960 has no SoftwareWire constructor -> compile error.
-//   B3 moveforwardduration is left UNINITIALIZED when the rear is blocked, then
-//      passed to moveForwardStraight() -> drives forward into the obstacle.
-//   B4 readUltraSonic(): `uint8_t cm` then `cm > 255` is never true; echoes
-//      past 255 cm wrap (same class as car_8feb26's Q4).
-//   B5 stop()/move(0,0) writes MIN_SPEED to forward, left AND right pins, so
-//      "stop" creeps and the steering pins fight each other.
+// The .ino was patched 2026-08-16 (B1-B6, see the notes card in
+// car_16Jun24.js). This model tracks the PATCHED sketch; SIM.faithful replays
+// the pre-patch behaviour:
+//   B3 moveforwardduration left UNINITIALIZED when the rear is blocked, then
+//      passed to moveForwardStraight() -> drove forward into the obstacle.
+//   B4 readUltraSonic(): `uint8_t cm` then `cm > 255` never true; echoes past
+//      255 cm wrapped (same class as car_8feb26's Q4).
+//   B5 stop()/move(0,0) wrote MIN_SPEED to forward, left AND right pins, so
+//      "stop" crept and the steering pins fought each other.
+//   B6 Bluetooth mode's rear check never read the sensor.
+// (B1/B2 were compile errors — the APDS9960 now shares the OLED's hardware I2C
+// bus — so they have no runtime analogue to simulate.)
 // ============================================================================
 
 import { FW, SIM } from '../config.js';
@@ -186,15 +187,16 @@ export class Firmware {
   *backwardRight(ms) { this._setState(ST.TURNING, 'reverse-right'); this.move(-FW.MAX_SPEED, FW.MAX_TURN_SPEED); yield ms; this.stop(); }
   *turnAround()      { yield* this.backwardRight(1500); yield* this.forwardLeft(750); }
 
+  // patched: turn 0 = straight. Pre-patch passed MIN_SPEED, which veered right.
   *moveBackwardStraight(ms) {
     this._setState(ST.REVERSING, 'backing off');
-    this.move(-FW.MAX_SPEED, FW.MIN_SPEED);                   // turn=MIN_SPEED -> veers
+    this.move(-FW.MAX_SPEED, SIM.faithful ? FW.MIN_SPEED : 0);
     yield ms;
   }
 
   *moveForwardStraight(ms) {
     this._setState(ST.MOVE_FORWARD, `${ms}ms burst`);
-    this.move(FW.MAX_SPEED, FW.MIN_SPEED);
+    this.move(FW.MAX_SPEED, SIM.faithful ? FW.MIN_SPEED : 0);
     yield ms;
   }
 
@@ -228,19 +230,27 @@ export class Firmware {
           yield* this.compareDistanceAndMove(this.prevForwardLeftDist, this.prevForwardRightDist);
           moveforwardduration = 750;
         } else {
-          // rear BLOCKED: the .ino only sets a message here and leaves
-          // moveforwardduration uninitialized (B3)
+          // Rear BLOCKED. Patched: stop and hold. Pre-patch (B3): duration was
+          // left uninitialized and the car drove forward into the obstacle.
           this._setState(ST.REAR_BLOCKED, `rear prox ${this.prevBackwardDist} >= ${FW.REAR_CLEAR_MAX}`);
           this.hal.display([FW.CARLABEL ?? '16Jun24 CarK1', 'rear collsn!', 'COLLISION', '']);
-          moveforwardduration = SIM.faithful ? this._garbageDuration() : 0;
+          if (SIM.faithful) {
+            moveforwardduration = this._garbageDuration();
+          } else {
+            this.stop();
+            moveforwardduration = 0;
+          }
           yield 300;
         }
       } else {
         moveforwardduration = 1500;
       }
 
-      yield* this.moveForwardStraight(moveforwardduration);
-      this.hal.display([FW.CARLABEL ?? '16Jun24 CarK1', '', 'move forward', '']);
+      // patched: guarded so a 0 duration means "don't drive this pass"
+      if (moveforwardduration > 0) {
+        yield* this.moveForwardStraight(moveforwardduration);
+        this.hal.display([FW.CARLABEL ?? '16Jun24 CarK1', '', 'move forward', '']);
+      }
     }
   }
 

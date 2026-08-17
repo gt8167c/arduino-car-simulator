@@ -1,11 +1,20 @@
-#include <Servo.h>        //add Servo Motor library      
+/*
+ * BUGFIX PATCH 2026-08-16 (found via ../simulator/, profile car_16Jun24):
+ * - APDS9960 now shares the hardware I2C bus with the OLED (see note below);
+ *   SoftwareWire is gone, which also frees D7/D8 for Bluetooth
+ * - moveforwardduration is no longer used uninitialized when the rear is
+ *   blocked (the car used to drive INTO the obstacle it just detected)
+ * - readUltraSonic() reads into unsigned int so echoes >255cm can't wrap
+ * - move()/stop() write 0 for "stopped"/"straight" instead of MIN_SPEED
+ */
+
+#include <Servo.h>        //add Servo Motor library
 #include <Ultrasonic.h>
 #include <SoftwareSerial.h>
 #include <ArduinoBlue.h>
 #include "SSD1306Ascii.h"
 #include "SSD1306AsciiAvrI2c.h"
 #include <SparkFun_APDS9960.h>
-#include <SoftwareWire.h>
 
 #define TRIG_PIN          12 // Pin 12 on the Motor Drive Shield soldered to the ultrasonic sensor
 #define ECHO_PIN          12 // same
@@ -19,8 +28,12 @@
 #define LEFT_PIN          6 // pwm pin motor
 #define RIGHT_PIN         5 // pwm pin motor
 
-#define SDA_PIN           8
-#define SCL_PIN           7
+// I2C NOTE: the APDS9960 shares the hardware I2C bus with the OLED.
+// They sit at different addresses -- APDS9960 0x39, SSD1306 0x3C -- so both
+// live on the Uno's dedicated SDA/SCL lines (A4/A5) with no bit-banged bus.
+// This replaced a SoftwareWire instance on D8/D7, which (a) the SparkFun
+// library has no constructor for and (b) collided with the Bluetooth pins
+// below. Those pins are now free for Bluetooth again.
 
 // Bluetooth TX -> Arduino D8
 #define BLUETOOTH_TX      8
@@ -39,6 +52,11 @@
 #define MOVE_THRESHOLD    80     // range from THROTTLE_MIN to THROTTLE_MAX
 #define COLL_DIST         30    // sets distance at which robot stops and reverses
 #define TURN_DIST         COLL_DIST+20 // sets distance at which robot veers away from object
+// APDS9960 rear check: reflectance COUNTS, higher = closer. Reading below this
+// means nothing is behind us and reversing is safe. 3 is very sensitive --
+// roughly anything within 15cm reads as blocked.
+#define REAR_CLEAR_MAX    3
+#define CLEAR_PATH_MIN    50   // flank clearance (cm) needed to stop reversing
 
 #define MAX_DISTANCE      300 // sets maximum useable sensor measuring distance to 300cm
 #define MAX_SPEED         200 // sets speed of DC traction motors to 150/250 or about 70% of full speed - to get power drain down.
@@ -76,7 +94,10 @@ int turn = 0;
 #endif
 
 SSD1306AsciiAvrI2c oled;
-Servo sonarservo;  // create servo object to control a servo 
+Servo sonarservo;  // create servo object to control a servo
+// File scope so readBackwardLaser() can reach it. Uses the same hardware I2C
+// bus as the OLED (APDS9960 @ 0x39, OLED @ 0x3C).
+SparkFun_APDS9960 apds;
 
 //-------------------------------------------- SETUP LOOP ----------------------------------------------------------------------------
 void setup() {
@@ -93,17 +114,19 @@ void setup() {
 #endif
 
 String autoblue = "Autonomous";
-#ifndef    AUTONOMOUS  
+#ifndef    AUTONOMOUS
   // Start bluetooth serial at 9600 bps.
   bluetooth.begin(9600);
   autoblue = "Bluetooth";
-#else
-  // Create a SoftwareWire instance
-  SoftwareWire sw(SDA_PIN, SCL_PIN);
-  // Pass the SoftwareWire instance to the APDS9960 library
-  SparkFun_APDS9960 apds(&sw);
-  apds.init();
 #endif
+
+  // APDS9960 on the shared hardware I2C bus (same wires as the OLED).
+  // Initialised in BOTH modes: now that it no longer contends for D7/D8, the
+  // rear check works alongside Bluetooth too.
+  // Configure gain and enable proximity ONCE here rather than on every read.
+  apds.init();
+  apds.setProximityGain(PGAIN_2X);
+  apds.enableProximitySensor(false);   // false = no interrupt, polled reads
 
   /**
    * must have these three lines
@@ -126,8 +149,10 @@ void loop() {
 }
 //---------------------------------------------autonomous_car ------------------------------------------------------------------------------
 void autonomous_car() {
-  uint8_t throttle, steering, sliderVal, button, sliderId;
-  uint8_t moveforwardduration;
+  // 0 = "do not drive forward this pass". Previously left uninitialized, so the
+  // rear-blocked branch below fell through to moveForwardStraight() with a
+  // garbage duration and drove into the obstacle it had just detected.
+  uint16_t moveforwardduration = 0;
   String str_length20_3 = "";
 
   delay(10);
@@ -145,30 +170,35 @@ void autonomous_car() {
 
     playtone(2);
 
-    prevBackwardDist = 0;
     readBackwardLaser();
 
-    if(prevBackwardDist < 3) {
+    // APDS9960 counts: higher = closer, so BELOW the threshold means the rear
+    // is clear and it is safe to reverse.
+    if(prevBackwardDist < REAR_CLEAR_MAX) {
       do {
         moveBackwardStraight(500);
       } while(!findClearPath());
       compareDistanceAndMove(prevForwardLeftDist,prevForwardRightDist);
       moveforwardduration = 750;
     } else {
+      // Blocked front AND rear: hold still rather than driving forward.
       str_length20_3 = F("rear collsn!");
+      stop();
+      moveforwardduration = 0;
     }
-    displaytext(F(CARLABEL),str_length20_3,F("COLLISION"),F(""));    
+    displaytext(F(CARLABEL),str_length20_3,F("COLLISION"),F(""));
   } else {
     str_length20_3 = "";
     moveforwardduration = 1500;
   }
-     
-  moveForwardStraight(moveforwardduration);
-  #ifdef SERIALL
-    Serial.println(F("move forward"));
-  #endif
 
-  displaytext(F(CARLABEL),str_length20_3,F("move forward"),F(""));
+  if(moveforwardduration > 0) {
+    moveForwardStraight(moveforwardduration);
+    #ifdef SERIALL
+      Serial.println(F("move forward"));
+    #endif
+    displaytext(F(CARLABEL),str_length20_3,F("move forward"),F(""));
+  }
 }
 //-------------------------------------------------------------------------------------------------------------------------------------
 uint8_t lookAheadForward() { // read the ultrasonic sensor distance in cm
@@ -203,7 +233,7 @@ uint8_t findClearPath() { // if forward path blocked
   delay(250);
 
   prevForwardDist = (centerDistance1+ centerDistance2)/2;
-  if((prevForwardLeftDist) < 50 || (prevForwardRightDist) < 50) {
+  if((prevForwardLeftDist) < CLEAR_PATH_MIN || (prevForwardRightDist) < CLEAR_PATH_MIN) {
     return 0;
   } else {
     return 1;
@@ -211,27 +241,29 @@ uint8_t findClearPath() { // if forward path blocked
 }
 //-------------------------------------------------------------------------------------------------------------------------------------
 void compareDistanceAndMove(uint8_t leftDistance, uint8_t rightDistance)  { // find the longest distance
-  if ((rightDistance > leftDistance) && (rightDistance > 50)) {       //if left is less obstructed 
+  if ((rightDistance > leftDistance) && (rightDistance > CLEAR_PATH_MIN)) {       //if left is less obstructed
     forwardRight(1500);
-  } else if ((leftDistance > rightDistance) && (leftDistance > 50)) {//if right is less obstructed
+  } else if ((leftDistance > rightDistance) && (leftDistance > CLEAR_PATH_MIN)) {//if right is less obstructed
     forwardLeft(1500);
   } else {  //if they are equally obstructed
     turnAround();
   }
 }
 //-------------------------------------------------------------------------------------------------------------------------------------
-uint8_t readBackwardLaser() { // read the ultrasonic sensor distance in cm
-  uint8_t cm = 0;
-  
-  apds.setProximityGain(PGAIN_2X);
-  apds.enableProximitySensor(false);    
-  apds.readProximity(cm);
-  prevBackwardDist = cm;
+// APDS9960 rear obstacle check (shares the OLED's hardware I2C bus).
+// NB: this returns 8-bit reflectance COUNTS, not centimetres --
+// higher = closer (255 ~ touching, 0 = nothing in range).
+// Gain/enable are configured once in setup(), so just read here.
+uint8_t readBackwardLaser() {
+  uint8_t counts = 0;
+
+  apds.readProximity(counts);
+  prevBackwardDist = counts;
 #ifdef SERIALL
-    Serial.print(F("readBackwardLaser "));
-    Serial.println(cm);
+    Serial.print(F("readBackwardLaser counts "));
+    Serial.println(counts);
 #endif
-  return cm;
+  return counts;
 }
 //-------------------------------------------------------------------------------------------------------------------------------------
 uint8_t readForwardSonic(uint8_t deg) { 
@@ -306,11 +338,13 @@ void processController() {
 //-------------------------------------------------------------------------------------------------------------------------------------
 uint8_t readUltraSonic() { // read the ultrasonic sensor distance in cm
   Ultrasonic ultrasonic(TRIG_PIN,ECHO_PIN);// sets up sensor library to use the correct pins to measure distance.
-  uint8_t cm = ultrasonic.read();
+  // int-width: a uint8_t here wraps echoes >255cm (300cm read as 44cm) and
+  // makes the `> 255` test below dead code.
+  unsigned int cm = ultrasonic.read();
   if(cm == 0 || cm > 255) { // nothing detected in range
     cm = CONTROL_MAX;
   }
-  return cm;
+  return (uint8_t)cm;
 }
 //-------------------------------------------------------------------------------------------------------------------------------------
 void DCMOTOR(int _pin1,int _speed,int _pin2) {
@@ -320,24 +354,21 @@ void DCMOTOR(int _pin1,int _speed,int _pin2) {
 //-------------------------------------------------------------------------------------------------------------------------------------
 // both spd and turn numbers 0-255
 void move() {
+  // 0 means "straight"/"stopped" -- writing MIN_SPEED here made stop() creep
+  // forward and left the steering pins fighting each other.
   if(turn > 0) {
     DCMOTOR(RIGHT_PIN,abs(turn),LEFT_PIN);
-  } else if(turn < 0) {      
+  } else if(turn < 0) {
     DCMOTOR(LEFT_PIN,abs(turn),RIGHT_PIN);
   } else {
-    DCMOTOR(RIGHT_PIN,MIN_SPEED,LEFT_PIN);
+    DCMOTOR(RIGHT_PIN,0,LEFT_PIN);
   }
-  if(spd != 0) {  
-    if(spd > 0) {
-      DCMOTOR(FORWARD_PIN,abs(spd),REVERSE_PIN);
-    } else if(spd < 0) {
-      DCMOTOR(REVERSE_PIN,abs(spd),FORWARD_PIN);
-    } else {
-      DCMOTOR(FORWARD_PIN,MIN_SPEED,REVERSE_PIN);    
-    }
+  if(spd > 0) {
+    DCMOTOR(FORWARD_PIN,abs(spd),REVERSE_PIN);
+  } else if(spd < 0) {
+    DCMOTOR(REVERSE_PIN,abs(spd),FORWARD_PIN);
   } else {
-    DCMOTOR(FORWARD_PIN,MIN_SPEED,REVERSE_PIN);    
-    DCMOTOR(LEFT_PIN,MIN_SPEED,RIGHT_PIN);
+    DCMOTOR(FORWARD_PIN,0,REVERSE_PIN);
   }
 #ifdef SERIALL
 //  Serial.println(F("move()"));
@@ -360,14 +391,14 @@ void turnAround() {
 }  
 //-------------------------------------------------------------------------------------------------------------------------------------
 void moveBackwardStraight(int ms) {
-  move(-MAX_SPEED,MIN_SPEED); // reverse straight
+  move(-MAX_SPEED,0); // reverse straight (turn 0 = straight; MIN_SPEED veered right)
   delay(ms); // run motors this way for ms
-}  
+}
 //-------------------------------------------------------------------------------------------------------------------------------------
 void moveForwardStraight(int ms) {
-  move(MAX_SPEED,MIN_SPEED); // reverse straight
+  move(MAX_SPEED,0); // forward straight (turn 0 = straight; MIN_SPEED veered right)
   delay(ms); // run motors this way for ms
-}  
+}
 //-------------------------------------------------------------------------------------------------------------------------------------
 void forwardLeft(int ms) {
   move(MAX_SPEED,-MAX_TURN_SPEED); // forward left
@@ -382,7 +413,7 @@ void forwardRight(int ms) {
 }  
 //-------------------------------------------------------------------------------------------------------------------------------------
 void backwardLeft(int ms) {
-  move(MAX_SPEED,-MAX_TURN_SPEED); // forward left
+  move(-MAX_SPEED,-MAX_TURN_SPEED); // reverse left (was MAX_SPEED: drove forward)
   delay(ms);
   stop();
 }  
@@ -507,8 +538,7 @@ void playtone(uint8_t numoftones) {
 //---------------------------------------------bluetooth_car ------------------------------------------------------------------------------
 #ifndef    AUTONOMOUS  
 void bluetooth_car() {
-  uint8_t throttle, steering, sliderVal, button, sliderId;
-  uint8_t moveforwardduration;
+  uint8_t throttle, steering;
   String str_length20_3 = "";
   
   delay(10);
@@ -526,22 +556,24 @@ void bluetooth_car() {
 
     playtone(2);
 
-    prevBackwardDist = 0;
-    if(prevBackwardDist < 3) {
+    // was: prevBackwardDist = 0; then testing it -- the sensor was never read,
+    // so the rear was always reported clear. Read it for real.
+    readBackwardLaser();
+    if(prevBackwardDist < REAR_CLEAR_MAX) {
       moveBackwardStraight(1500);
       findClearPath(); // find and move
       compareDistanceAndMove(prevForwardLeftDist,prevForwardRightDist);
-      moveforwardduration = 750;
     } else {
       str_length20_3 = F("rear collsn!");
+      stop();
     }
     displaytext(F(CARLABEL),str_length20_3,F(""),F(""));
-    
+
   } else {
     str_length20_3 = "";
-    moveforwardduration = 1500;
+    // no forward burst here: in Bluetooth mode the driver supplies the throttle
   }
-     
+
   //  button = phone.getButton();  // ID of the button pressed pressed.
   //  if (button == 999) { // self driving Display button data whenever its pressed.
   //  } else { // use bluetooth controller
