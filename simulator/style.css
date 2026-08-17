@@ -137,6 +137,16 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .coll-marker { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink-2); opacity: 0.85; border-radius: 1px; }
 .bar-val { color: var(--ink); font-variant-numeric: tabular-nums; font-size: 12.5px; text-align: right; }
 
+/* ---------- rear proximity sensor ---------- */
+.rear-block { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.rear-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; }
+.rear-label { color: var(--ink-2); font-size: 11px; font-weight: 650; letter-spacing: 0.5px; }
+.rear-verdict { font-size: 10.5px; font-weight: 700; letter-spacing: 0.6px; padding: 2px 8px; border-radius: 999px; }
+.rear-verdict.clear { color: var(--good); background: rgba(12,163,12,0.12); border: 1px solid rgba(12,163,12,0.4); }
+.rear-verdict.blocked { color: var(--critical); background: rgba(208,59,59,0.14); border: 1px solid rgba(208,59,59,0.5); }
+.rear-block .bar-val b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.rear-block .bar-val i { color: var(--muted); font-style: normal; font-size: 10px; }
+
 /* ---------- state machine ---------- */
 .state-flow { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
 .st-node {

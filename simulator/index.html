@@ -64,7 +64,7 @@
   <section class="col-right">
 
     <div class="panel">
-      <div class="panel-head"><h2>OLED · SSD1306 <span class="dim">0x3C</span></h2>
+      <div class="panel-head"><h2>OLED · SSD1306 <span class="dim">0x3C · <span id="oledSize">128x64</span></span></h2>
         <div class="chip-row">
           <span class="chip peripheral" id="buzzerChip"><span class="beep-dot"></span><span>idle</span> <em>D9</em></span>
           <span class="chip peripheral dim-chip" title="ArduinoBlue wired on D7/D8 — phone control commented out in loop()">BT: disabled <em>D7/8</em></span>
@@ -83,6 +83,19 @@
           <div class="bar-row"><label>R</label><div class="bar-track"><div class="bar-fill" id="barR"></div><div class="coll-marker"></div></div><span class="bar-val" id="valR">–</span></div>
           <p class="hint">99* = sentinel (no echo / out of range) · marker = COLL_DIST</p>
         </div>
+      </div>
+
+      <div id="rearBlock" class="rear-block hidden">
+        <div class="rear-head">
+          <span class="rear-label" id="rearLabel">REAR APDS9960</span>
+          <span class="rear-verdict clear" id="rearVerdict">clear</span>
+        </div>
+        <div class="bar-row">
+          <label>◄</label>
+          <div class="bar-track"><div class="bar-fill" id="barRear"></div><div class="coll-marker" id="rearMarker"></div></div>
+          <span class="bar-val"><b id="valRear">0</b> <i id="rearUnit">counts</i></span>
+        </div>
+        <p class="hint" id="rearHint"></p>
       </div>
     </div>
 

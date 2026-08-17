@@ -21,6 +21,9 @@ export class World {
     this.v = 0;                  // signed ground speed cm/s
     this.servoVisual = 90;       // animated servo angle for rendering
     this.rayHistory = [];        // recent measurements for the fading ray viz
+    this.rearProx = 0;           // APDS9960 counts (0-255, higher = closer)
+    this.rearRay = null;         // last rear cast, for the arena overlay
+    this.showRear = false;       // enabled by profiles that declare a rear sensor
   }
 
   resetCar() {
@@ -100,6 +103,30 @@ export class World {
   beamAngle(correctedServoDeg) {
     // corrected 90 = straight ahead; >90 = left of nose (counter-clockwise on screen)
     return this.car.headingDeg - (correctedServoDeg - 90);
+  }
+
+  // Rear-facing APDS9960 proximity (car_16Jun24). Returns an 8-bit reflectance
+  // COUNT, not a distance: 255 ≈ touching, 0 = nothing within range. Falls off
+  // faster than linear, like real IR reflectance.
+  measureRearProximity() {
+    const a = this.car.headingDeg * D2R;
+    const tail = SIM.carLenCm / 2 - 2;
+    const px = this.car.x - Math.cos(a) * tail;
+    const py = this.car.y - Math.sin(a) * tail;
+    const centre = this.car.headingDeg + 180;
+
+    let d = Infinity;
+    for (const off of [-SIM.apdsHalfDeg, 0, SIM.apdsHalfDeg]) {
+      d = Math.min(d, this.castRay(px, py, centre + off));
+    }
+    this.rearRay = { x: px, y: py, ang: centre, cm: d };
+
+    if (!isFinite(d) || d >= SIM.apdsRangeCm) { this.rearProx = 0; return 0; }
+    const n = 1 - d / SIM.apdsRangeCm;
+    let prox = Math.round(255 * n * n);
+    prox += Math.round((Math.random() * 2 - 1) * SIM.apdsNoise);
+    this.rearProx = Math.max(0, Math.min(255, prox));
+    return this.rearProx;
   }
 
   // HAL: measure with beam cone + noise. Returns physical cm (0 = no echo).
@@ -281,6 +308,25 @@ export function drawWorld(ctx, world, fw, canvas) {
     ctx.strokeText(label, lx, ly + 3);
     ctx.fillStyle = COL.ink;
     ctx.fillText(label, lx, ly + 3);
+  }
+
+  // rear APDS9960 proximity lobe (profiles with a rear sensor)
+  if (world.showRear && world.rearRay) {
+    const r = world.rearRay;
+    const lobe = Math.min(SIM.apdsRangeCm, isFinite(r.cm) ? r.cm : SIM.apdsRangeCm);
+    const blocked = world.rearProx >= (FW.REAR_CLEAR_MAX ?? 3);
+    const col = blocked ? COL.critical : COL.good;
+    ctx.save();
+    ctx.globalAlpha = 0.16; ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.moveTo(r.x, r.y);
+    ctx.arc(r.x, r.y, SIM.apdsRangeCm, (r.ang - SIM.apdsHalfDeg) * D2R, (r.ang + SIM.apdsHalfDeg) * D2R);
+    ctx.closePath(); ctx.fill();
+    ctx.globalAlpha = 0.9; ctx.strokeStyle = col; ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, lobe, (r.ang - SIM.apdsHalfDeg) * D2R, (r.ang + SIM.apdsHalfDeg) * D2R);
+    ctx.stroke();
+    ctx.restore();
   }
 
   // car

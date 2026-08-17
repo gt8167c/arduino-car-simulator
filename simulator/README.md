@@ -8,6 +8,11 @@ HC-SR04 physics. One simulator serves all sketch variants via `profiles/`.
 
 ## Run it
 
+**In the browser, no install:** https://gt8167c.github.io/arduino-car-simulator/
+(published from this folder by `.github/workflows/pages.yml` on every push to `main`.)
+
+Locally:
+
 ```bash
 cd "$(dirname "$0")" && ./start.sh     # serves http://localhost:8137
 ```
@@ -33,6 +38,27 @@ slider values that maps 1:1 onto the sketch's define block.
 One simulator, many sketches. Everything sketch-specific lives in `profiles/`;
 the engine (arena, physics, OLED, panels, presets) is shared. The header
 dropdown switches the active profile; the choice is remembered.
+
+Current profiles:
+
+| Profile | Sketch | Notes |
+|---|---|---|
+| `car_8feb26 · CarK1 (patched)` | `car_8feb26/car_8feb26.ino` | Non-blocking state machine, 128×64 OLED. Pre-patch toggle replays bugs Q1–Q4. |
+| `car_16Jun24 · rear APDS9960` | `car_16Jun24/car_16Jun24.ino` | Blocking/sequential (`delay()`-driven), 128×32 OLED, **rear APDS9960 proximity** checked before reversing. |
+
+### Rear proximity (APDS9960)
+
+`car_16Jun24` uses the APDS9960 as a proximity sensor, not a gesture sensor: it
+looks behind the car before backing away from a front collision. Its units are
+8-bit reflectance **counts where higher = closer** (255 ≈ touching, 0 = clear) —
+so the sketch's `if (prevBackwardDist < 3)` means *"almost no reflection, rear is
+clear, safe to reverse."* The simulator models the falloff (≈127 counts at 4 cm,
+12 at 14 cm, 0 past 20 cm) and draws the IR lobe behind the car, green when clear
+and red when blocked.
+
+Note the default threshold of **3 counts is very sensitive** — anything within
+roughly 15 cm behind reads as blocked. `REAR_CLEAR_MAX` is a slider so you can
+tune it against the arena.
 
 To add a variant (e.g. `car_31mar19`):
 

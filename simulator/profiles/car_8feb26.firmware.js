@@ -8,7 +8,7 @@
 //   hal.servoWrite(correctedServoDeg)
 //   hal.setPins({fwd, rev, left, right})  -> PWM 0-255 per motor pin
 //   hal.beep(count)
-//   hal.display(line1, line2, line3)
+//   hal.display([line1, line2, line3])
 //
 // PRE-PATCH MODE (SIM.faithful = true) reproduces four bugs that lived in the
 // .ino until the 2026-08-15 patch (fixed at .ino:118,126,134,155,276,297):
@@ -55,7 +55,7 @@ export class Firmware {
 
     // setup() (.ino): OLED banner, beep(3), delay(500)
     this.hal.servoWrite(90);
-    this.hal.display('Vasu CarK1', 'Setup complete', '');
+    this.hal.display(['Vasu CarK1', 'Setup complete', '']);
     this.hal.beep(3);
     this.blockedUntil = now + 3 * FW.BEEP_MS + 500;
     this._setState(ST.SCANNING, now, 'boot');
@@ -223,7 +223,7 @@ export class Firmware {
     // updateDisplay() every DISPLAY_MS
     if (now - this.lastDisplay > FW.DISPLAY_MS) {
       const l2 = `F:${String(c.forward).padStart(3)} L:${String(c.left).padStart(3)} R:${String(c.right).padStart(3)}`;
-      this.hal.display('Vasu CarK1', l2, STATE_OLED[this.state]);
+      this.hal.display(['Vasu CarK1', l2, STATE_OLED[this.state]]);
       this.lastDisplay = now;
     }
   }

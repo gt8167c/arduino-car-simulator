@@ -21,6 +21,11 @@ export const SIM_DEFAULTS = {
   carLenCm:     26,
   carWidCm:     16,
 
+  // rear APDS9960 proximity (profiles that declare a rear sensor)
+  apdsRangeCm:  20,   // beyond this the sensor reads 0 counts
+  apdsHalfDeg:  20,   // IR emitter spread (much wider than the sonar cone)
+  apdsNoise:    3,    // ± counts
+
   faithful:     false, // generic profile-toggle store (e.g. car_8feb26 pre-patch mode)
 
   timescale:    1,

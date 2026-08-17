@@ -1,0 +1,46 @@
+# Publishes simulator/ to GitHub Pages so the simulator runs in the browser
+# with no local server. The simulator is plain ES modules — no build step.
+#
+# Only the simulator/ folder is uploaded, so the site lives at the domain root:
+#   https://gt8167c.github.io/arduino-car-simulator/
+#
+# Requires Pages enabled with "Source: GitHub Actions" (Settings -> Pages).
+name: Deploy simulator to Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'simulator/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload simulator directory
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./simulator
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

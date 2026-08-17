@@ -9,7 +9,17 @@ import { statusFor } from './world.js';
 const $ = id => document.getElementById(id);
 
 let P = null;   // active profile
-export function setProfile(profile) { P = profile; }
+export function setProfile(profile) {
+  P = profile;
+  // rear-sensor block is shown only for profiles that declare one
+  const rs = profile.rearSensor;
+  $('rearBlock').classList.toggle('hidden', !rs);
+  if (rs) {
+    $('rearLabel').textContent = rs.label;
+    $('rearHint').textContent = rs.hint;
+    $('rearUnit').textContent = rs.unit;
+  }
+}
 
 // ---- sensor panel -----------------------------------------------------------
 const BAR_MAX = 150; // cm scale for the bars
@@ -23,6 +33,20 @@ export function updateSensorPanel(fw) {
     fill.style.width = pct + '%';
     fill.style.background = statusFor(cm);
     val.textContent = cm === FW.SENSOR_SENTINEL ? cm + '*' : cm + ' cm';
+  }
+
+  // rear proximity (profiles that declare one) — counts, higher = closer
+  if (P.rearSensor) {
+    const rs = P.rearSensor;
+    const counts = c.rear ?? 0;
+    const thr = FW[rs.thresholdKey] ?? 3;
+    const blocked = counts >= thr;
+    $('barRear').style.width = Math.min(counts / rs.max * 100, 100) + '%';
+    $('barRear').style.background = blocked ? '#d03b3b' : '#0ca30c';
+    $('rearMarker').style.left = (thr / rs.max * 100) + '%';
+    $('valRear').textContent = counts;
+    $('rearVerdict').textContent = blocked ? 'BLOCKED' : 'clear';
+    $('rearVerdict').className = 'rear-verdict ' + (blocked ? 'blocked' : 'clear');
   }
   const collPct = Math.min(FW.COLL_DIST ?? 30, BAR_MAX) / BAR_MAX * 100 + '%';
   document.querySelectorAll('.coll-marker').forEach(m => m.style.left = collPct);

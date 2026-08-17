@@ -43,16 +43,22 @@ document.addEventListener('pointerdown', () => { if (audio?.state === 'suspended
 // ---- HAL bridge -------------------------------------------------------------
 const hal = {
   readUltrasonic: corrected => world.measure(corrected),
+  readRearProximity: () => world.measureRearProximity(),
   servoWrite: () => {},
   setPins: () => {},
   beep: n => { beepAudio(n); UI.flashBuzzer(n); },
-  display: (l1, l2, l3) => oled.show(l1, l2, l3),
+  display: rows => oled.show(rows),
 };
 
 // ---- profile lifecycle ------------------------------------------------------
 function renderProfileChrome() {
   $('sketchLabel').textContent = profile.sketch;
   $('profileNotes').innerHTML = profile.notesHtml ?? '';
+
+  // OLED panel geometry (128x64 vs 128x32) and the rear-sensor overlay
+  oled.setGeometry(profile.oled ?? { width: 128, height: 64, rows: [{ scale: 2 }, { scale: 1 }, { scale: 1 }] });
+  $('oledSize').textContent = `${(profile.oled?.width) ?? 128}x${(profile.oled?.height) ?? 64}`;
+  world.showRear = !!profile.rearSensor;
 
   // header toggles declared by the profile
   const host = $('profileToggles');
@@ -233,3 +239,7 @@ function frame() {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
+// Debug handle: inspect or script the sim from the browser console, e.g.
+//   __sim.world.car.x = 100;  __sim.fw().sensorCache;  __sim.FW.COLL_DIST = 45
+window.__sim = { world, FW, SIM, fw: () => fw, profile: () => profile };

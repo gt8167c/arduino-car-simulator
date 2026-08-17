@@ -17,6 +17,9 @@ export default {
   oledStates: STATE_OLED,
   flow: [1, 2, 3, 4, 5],          // panel order: SCANNING..TURNING (IDLE hidden)
 
+  // 128x64 panel: set2X banner then two set1X rows
+  oled: { width: 128, height: 64, rows: [{ scale: 2 }, { scale: 1 }, { scale: 1 }] },
+
   // Mirror of the .ino #define block (car_8feb26.ino:47-60)
   fwDefaults: {
     COLL_DIST:       30,    // cm
