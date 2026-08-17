@@ -41,7 +41,7 @@ export default {
     SQUINT_ANGLE:    25,
     CORRECTION_ANGLE: 0,
 
-    REAR_CLEAR_MAX:  3,     // literal in the .ino: `if (prevBackwardDist < 3)`
+    REAR_CLEAR_MAX:  20,    // .ino:58 — blocked within ~14cm (was 3 = ~18cm)
     CLEAR_PATH_MIN:  50,    // literal: `< 50` flank test in findClearPath()
 
     TONE_MS:         160,   // playtone() per-note period

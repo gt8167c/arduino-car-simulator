@@ -53,9 +53,11 @@
 #define COLL_DIST         30    // sets distance at which robot stops and reverses
 #define TURN_DIST         COLL_DIST+20 // sets distance at which robot veers away from object
 // APDS9960 rear check: reflectance COUNTS, higher = closer. Reading below this
-// means nothing is behind us and reversing is safe. 3 is very sensitive --
-// roughly anything within 15cm reads as blocked.
-#define REAR_CLEAR_MAX    3
+// means nothing is behind us and reversing is safe. Raised from 3 to 20 on
+// 2026-08-16: 3 blocked on anything within ~18cm, which is most of a garage.
+// 20 blocks within ~14cm, so the car still refuses to reverse into something
+// close but will back out of a merely tight spot.
+#define REAR_CLEAR_MAX    20
 #define CLEAR_PATH_MIN    50   // flank clearance (cm) needed to stop reversing
 
 #define MAX_DISTANCE      300 // sets maximum useable sensor measuring distance to 300cm

@@ -10,8 +10,10 @@
 // REAR SENSOR — the APDS9960 is used as a proximity sensor, not a gesture
 // sensor: readBackwardLaser() checks for obstacles before reversing. Note its
 // units are 8-bit reflectance COUNTS where HIGHER = CLOSER (255 ≈ touching,
-// 0 = clear). So `prevBackwardDist < 3` means "almost no reflection, rear is
-// CLEAR, safe to reverse"; >= 3 means something is behind us -> "rear collsn!".
+// 0 = clear). So `prevBackwardDist < REAR_CLEAR_MAX` means "little reflection,
+// rear is CLEAR, safe to reverse"; at or above it something is behind us and
+// the sketch reports "rear collsn!". REAR_CLEAR_MAX is 20 (~14cm) since
+// 2026-08-16; it was 3 (~18cm), which blocked almost any reverse.
 //
 // The .ino was patched 2026-08-16 (B1-B6, see the notes card in
 // car_16Jun24.js). This model tracks the PATCHED sketch; SIM.faithful replays

@@ -314,7 +314,7 @@ export function drawWorld(ctx, world, fw, canvas) {
   if (world.showRear && world.rearRay) {
     const r = world.rearRay;
     const lobe = Math.min(SIM.apdsRangeCm, isFinite(r.cm) ? r.cm : SIM.apdsRangeCm);
-    const blocked = world.rearProx >= (FW.REAR_CLEAR_MAX ?? 3);
+    const blocked = world.rearProx >= (FW.REAR_CLEAR_MAX ?? 20);
     const col = blocked ? COL.critical : COL.good;
     ctx.save();
     ctx.globalAlpha = 0.16; ctx.fillStyle = col;

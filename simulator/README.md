@@ -51,14 +51,19 @@ Current profiles:
 `car_16Jun24` uses the APDS9960 as a proximity sensor, not a gesture sensor: it
 looks behind the car before backing away from a front collision. Its units are
 8-bit reflectance **counts where higher = closer** (255 ≈ touching, 0 = clear) —
-so the sketch's `if (prevBackwardDist < 3)` means *"almost no reflection, rear is
-clear, safe to reverse."* The simulator models the falloff (≈127 counts at 4 cm,
-12 at 14 cm, 0 past 20 cm) and draws the IR lobe behind the car, green when clear
-and red when blocked.
+so the sketch's `if (prevBackwardDist < REAR_CLEAR_MAX)` means *"little enough
+reflection that the rear is clear, safe to reverse."* The simulator models the falloff (see the table below)
+and draws the IR lobe behind the car, green when clear and red when blocked.
 
-Note the default threshold of **3 counts is very sensitive** — anything within
-roughly 15 cm behind reads as blocked. `REAR_CLEAR_MAX` is a slider so you can
-tune it against the arena.
+`REAR_CLEAR_MAX` was **raised from 3 to 20 on 2026-08-16**. Measured against the
+falloff model, 3 counts flagged "blocked" for anything within roughly 18 cm —
+most of a garage — so the car rarely reversed. 20 blocks within about 14 cm: it
+still refuses to back into something close, but will reverse out of a tight
+spot. It is a slider, so re-tune it against your real layout.
+
+| gap behind car | 6 cm | 8 | 10 | 12 | 14 | 16 | 18 | 20 |
+|---|---|---|---|---|---|---|---|---|
+| counts | 124 | 93 | 63 | 41 | 22 | 10 | 2 | 0 |
 
 ### car_16Jun24 bugs B1–B6 — PATCHED 2026-08-16
 
