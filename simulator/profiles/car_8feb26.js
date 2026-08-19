@@ -15,10 +15,19 @@ export default {
   // State machine metadata (drives the state-flow panel and the log)
   states: STATE_NAMES,
   oledStates: STATE_OLED,
-  flow: [1, 2, 3, 4, 5],          // panel order: SCANNING..TURNING (IDLE hidden)
+  flow: [1, 2, 3, 5, 6],          // SCANNING..TURNING (IDLE/REAR_BLOCKED show only when active)
 
   // 128x64 panel: set2X banner then two set1X rows
   oled: { width: 128, height: 64, rows: [{ scale: 2 }, { scale: 1 }, { scale: 1 }] },
+
+  // Rear APDS9960 added 2026-08-16, sharing the OLED's I2C bus
+  rearSensor: {
+    label: 'REAR APDS9960',
+    unit: 'counts',
+    max: 255,
+    thresholdKey: 'REAR_CLEAR_MAX',
+    hint: 'IR reflectance, higher = closer. Below the marker = clear to reverse.',
+  },
 
   // Mirror of the .ino #define block (car_8feb26.ino:47-60)
   fwDefaults: {
@@ -35,7 +44,9 @@ export default {
     REVERSE_MS:      500,   // reverse duration (.ino:57)
     TURN_MS:         750,   // turn duration (.ino:58)
     SENSOR_STEP_MS:  30,    // updateSensors() throttle (.ino:59)
-    CLEAR_PATH_MIN:  50,    // clear-side threshold in REVERSING (.ino:60)
+    CLEAR_PATH_MIN:  50,    // clear-side threshold in REVERSING (.ino:65)
+    REAR_CLEAR_MAX:  20,    // rear APDS9960: below this = clear to reverse (.ino:70)
+    REAR_HOLD_MS:    500,   // pause before re-checking when boxed in (.ino:71)
 
     // literals still inside .ino functions
     SERVO_SETTLE_MS: 30,    // delay(30) in fastReadSonic()
@@ -57,6 +68,8 @@ export default {
     ['TURN_MS',      100, 2000, 50, 'ms', 'turn duration'],
     ['SENSOR_STEP_MS', 10, 100, 5,  'ms', 'scan step throttle'],
     ['CLEAR_PATH_MIN', 10, 150, 5,  'cm', 'clear-side threshold'],
+    ['REAR_CLEAR_MAX',  1, 100, 1,  'counts', 'rear APDS9960: below this = clear to reverse'],
+    ['REAR_HOLD_MS',  100, 2000, 50, 'ms', 'hold before re-checking when boxed in'],
   ],
 
   // Header toggles specific to this profile
@@ -86,6 +99,9 @@ export default {
     L.push(`#define TURN_MS           ${FW.TURN_MS}   // turn duration`);
     L.push(`#define SENSOR_STEP_MS    ${FW.SENSOR_STEP_MS}    // updateSensors() throttle`);
     L.push(`#define CLEAR_PATH_MIN    ${FW.CLEAR_PATH_MIN}    // min side clearance (cm) to commit a turn`);
+    L.push('');
+    L.push(`#define REAR_CLEAR_MAX    ${FW.REAR_CLEAR_MAX}    // rear APDS9960: below = clear to reverse`);
+    L.push(`#define REAR_HOLD_MS      ${FW.REAR_HOLD_MS}   // pause before re-checking when boxed in`);
     return L.join('\n');
   },
 
@@ -99,6 +115,7 @@ export default {
         <li><b>Q3</b> MOVING_FORWARD / REVERSING passed turnSpeed = MIN_SPEED → now 0 <span class="dim">(.ino:276,297)</span></li>
         <li><b>Q4</b> <code>uint8_t cm</code> — echoes &gt;255 cm wrapped (300&nbsp;cm read as 44&nbsp;cm) → now <code>unsigned int</code> <span class="dim">(.ino:155)</span></li>
       </ul>
-      <p class="hint">Default mode = the <b>patched</b> firmware (verified compiling, Uno: 35% flash / 25% SRAM). Toggle <b>pre-patch bugs</b> in the header to replay the old behavior. Original saved as <code>car_8feb26.ino.prepatch-2026-08-15.bak</code>.</p>
+      <p class="hint"><b>Rear APDS9960 added 2026-08-16</b> — proximity check before reversing, sharing the OLED's hardware I2C bus (0x39 vs 0x3C). The OLED driver moved to <code>SSD1306AsciiWire</code> so one TWI driver owns the bus. New <code>STATE_REAR_BLOCKED</code> holds the car still when boxed in front and rear. Uno: 45% flash / 36% SRAM.</p>
+      <p class="hint">Default mode = the <b>patched</b> firmware (pre-rear-sensor build was 35% flash / 25% SRAM). Toggle <b>pre-patch bugs</b> in the header to replay the old behavior. Original saved as <code>car_8feb26.ino.prepatch-2026-08-15.bak</code>.</p>
     </div>`,
 };

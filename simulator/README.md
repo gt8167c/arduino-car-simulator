@@ -43,12 +43,12 @@ Current profiles:
 
 | Profile | Sketch | Notes |
 |---|---|---|
-| `car_8feb26 · CarK1 (patched)` | `car_8feb26/car_8feb26.ino` | Non-blocking state machine, 128×64 OLED. Pre-patch toggle replays bugs Q1–Q4. |
+| `car_8feb26 · CarK1 (patched)` | `car_8feb26/car_8feb26.ino` | Non-blocking state machine, 128×64 OLED, **rear APDS9960** with a `REAR_BLOCKED` state. Pre-patch toggle replays bugs Q1–Q4. |
 | `car_16Jun24 · rear APDS9960` | `car_16Jun24/car_16Jun24.ino` | Blocking/sequential (`delay()`-driven), 128×32 OLED, **rear APDS9960 proximity** checked before reversing. |
 
 ### Rear proximity (APDS9960)
 
-`car_16Jun24` uses the APDS9960 as a proximity sensor, not a gesture sensor: it
+Both profiles use the APDS9960 as a proximity sensor, not a gesture sensor: it
 looks behind the car before backing away from a front collision. Its units are
 8-bit reflectance **counts where higher = closer** (255 ≈ touching, 0 = clear) —
 so the sketch's `if (prevBackwardDist < REAR_CLEAR_MAX)` means *"little enough
@@ -64,6 +64,25 @@ spot. It is a slider, so re-tune it against your real layout.
 | gap behind car | 6 cm | 8 | 10 | 12 | 14 | 16 | 18 | 20 |
 |---|---|---|---|---|---|---|---|---|
 | counts | 124 | 93 | 63 | 41 | 22 | 10 | 2 | 0 |
+
+### Rear sensor on car_8feb26 (added 2026-08-16)
+
+`car_8feb26` gained the same rear check. Because it is a state machine rather
+than a blocking loop, it wires in as a new state: `STATE_OBSTACLE_DETECTED`
+reads the APDS9960 and branches to `STATE_REVERSING` when the rear is clear, or
+to the new **`STATE_REAR_BLOCKED`** when it is not — which stops the motors and
+re-scans after `REAR_HOLD_MS` instead of shunting into whatever is behind. The
+rear counts also appear on OLED line 3 (`SCAN B: 66`).
+
+One difference worth knowing: `car_8feb26` was moved from `SSD1306AsciiAvrI2c`
+to **`SSD1306AsciiWire`**. The APDS9960 library talks over `Wire`, and
+`SSD1306AsciiAvrI2c` is a *separate* TWI driver that writes `TWBR`/`TWCR`
+directly — two drivers owning one bus. Using the Wire-backed OLED driver gives
+the bus a single owner. Costs ~10% flash (35% → 45%) and ~11% SRAM.
+
+**`car_16Jun24` still uses `SSD1306AsciiAvrI2c` alongside the Wire-based APDS**,
+so it carries that two-driver risk. It compiles and will often work, but the
+same one-line swap would make it robust.
 
 ### car_16Jun24 bugs B1–B6 — PATCHED 2026-08-16
 

@@ -17,14 +17,24 @@
  * - Q4 uint8_t sensor read wrapped echoes >255cm into phantom obstacles
  *      (300cm read as 44cm) -> now unsigned int before the range check
  * - timing literals promoted to #defines to stay in sync with simulator/config.js
+ *
+ * REAR SENSOR 2026-08-16: APDS9960 proximity added for rear obstacle detection
+ * before reversing, sharing the OLED's hardware I2C bus (A4/A5). The OLED
+ * driver moved from SSD1306AsciiAvrI2c to SSD1306AsciiWire so both devices go
+ * through one TWI driver instead of two fighting over the same registers.
  */
 
 #include <Servo.h>
 #include <Ultrasonic.h>
 #include <SoftwareSerial.h>
 #include <ArduinoBlue.h>
+#include <Wire.h>
 #include "SSD1306Ascii.h"
-#include "SSD1306AsciiAvrI2c.h"
+// Wire-backed OLED driver (was SSD1306AsciiAvrI2c). The APDS9960 library talks
+// over Wire, and running two different TWI drivers on the one hardware bus
+// means both fight over TWBR/TWCR. Sharing Wire keeps a single owner.
+#include "SSD1306AsciiWire.h"
+#include <SparkFun_APDS9960.h>
 
 // ============================================================================
 // HARDWARE CONFIGURATION
@@ -59,6 +69,12 @@
 #define SENSOR_STEP_MS    30    // updateSensors() throttle
 #define CLEAR_PATH_MIN    50    // min side clearance (cm) to commit a turn
 
+// Rear APDS9960: 8-bit reflectance COUNTS, higher = closer (255 ~ touching,
+// 0 = clear). Below this = nothing behind us, safe to reverse. 20 blocks
+// within roughly 14cm; see ../simulator/README.md for the falloff table.
+#define REAR_CLEAR_MAX    20
+#define REAR_HOLD_MS      500   // pause before re-checking when boxed in
+
 #define I2C_ADDRESS       0x3C
 
 // ============================================================================
@@ -79,6 +95,7 @@ enum CarState {
   STATE_SCANNING,
   STATE_MOVING_FORWARD,
   STATE_OBSTACLE_DETECTED,
+  STATE_REAR_BLOCKED,
   STATE_REVERSING,
   STATE_TURNING
 };
@@ -92,7 +109,11 @@ unsigned long lastSensorRead = 0;
 // ============================================================================
 SoftwareSerial bluetooth(BLUETOOTH_TX, BLUETOOTH_RX);
 ArduinoBlue phone(bluetooth);
-SSD1306AsciiAvrI2c oled;  // Init once, reuse
+SSD1306AsciiWire oled;    // Init once, reuse
+// I2C NOTE: the APDS9960 shares the hardware I2C bus (A4/A5) with the OLED.
+// Different addresses -- APDS9960 0x39, SSD1306 0x3C -- so no bit-banged bus
+// is needed and D7/D8 stay free for Bluetooth.
+SparkFun_APDS9960 apds;   // rear obstacle proximity
 Servo sonarServo;         // Init once, keep attached
 Ultrasonic ultrasonic(TRIG_PIN, ECHO_PIN); // Init once
 
@@ -103,6 +124,7 @@ struct SensorData {
   uint8_t forward;
   uint8_t left;
   uint8_t right;
+  uint8_t rear;              // APDS9960 counts, higher = closer
   unsigned long timestamp;
 } sensorCache;
 
@@ -154,6 +176,18 @@ uint8_t fastReadSonic(uint8_t angle) {
   
   unsigned int cm = ultrasonic.read();   // int-width: echoes >255cm must not wrap
   return (cm == 0 || cm > 250) ? 99 : (uint8_t)cm;
+}
+
+// ============================================================================
+// Rear obstacle check - APDS9960 proximity (shares the OLED's I2C bus)
+// ============================================================================
+// Returns 8-bit reflectance COUNTS, not centimetres: higher = closer.
+// Non-blocking - a proximity read is a couple of short I2C transactions.
+uint8_t readRearProximity() {
+  uint8_t counts = 0;
+  apds.readProximity(counts);        // leaves counts at 0 if the read fails
+  sensorCache.rear = counts;
+  return counts;
 }
 
 // ============================================================================
@@ -222,12 +256,17 @@ void updateDisplay() {
     case STATE_SCANNING:     stateStr = PSTR("SCAN"); break;
     case STATE_MOVING_FORWARD: stateStr = PSTR("MOVE FWD"); break;
     case STATE_OBSTACLE_DETECTED: stateStr = PSTR("OBSTACLE"); break;
+    case STATE_REAR_BLOCKED: stateStr = PSTR("REAR BLK"); break;
     case STATE_REVERSING:    stateStr = PSTR("REVERSE"); break;
     case STATE_TURNING:      stateStr = PSTR("TURNING"); break;
     default:                 stateStr = PSTR("IDLE"); break;
   }
   
+  // "<STATE> B:<rear counts>" - 21 char line, longest state is 8 chars
   strcpy_P(displayLine3, stateStr);
+  char rearBuf[8];
+  sprintf_P(rearBuf, PSTR(" B:%3d"), sensorCache.rear);
+  strcat(displayLine3, rearBuf);
   oled.println(displayLine3);
 }
 
@@ -289,8 +328,22 @@ void autonomousDrive() {
       
     case STATE_OBSTACLE_DETECTED:
       setMotors(0, 0); // Stop
-      currentState = STATE_REVERSING;
+      // Look behind BEFORE backing away from the front obstacle.
+      if (readRearProximity() >= REAR_CLEAR_MAX) {
+        currentState = STATE_REAR_BLOCKED;   // boxed in front and rear
+      } else {
+        currentState = STATE_REVERSING;      // rear clear, safe to back off
+      }
       stateStartTime = now;
+      break;
+
+    case STATE_REAR_BLOCKED:
+      setMotors(0, 0);   // nowhere to go: hold still rather than shunt into something
+      if (now - stateStartTime > REAR_HOLD_MS) {
+        // Re-check both ends; either obstacle may have moved.
+        readRearProximity();
+        currentState = STATE_SCANNING;
+      }
       break;
       
     case STATE_REVERSING:
@@ -351,6 +404,13 @@ void setup() {
   // Could add bluetooth control here without blocking autonomous mode
   bluetooth.begin(9600);
   
+  // One I2C bus, one driver: Wire serves both the OLED (0x3C) and the
+  // APDS9960 (0x39). Gain/enable are set once here, not on every read.
+  Wire.begin();
+  apds.init();
+  apds.setProximityGain(PGAIN_2X);
+  apds.enableProximitySensor(false);   // false = polled, no interrupt
+
   // OPTIMIZATION: Init OLED once (not every display call)
   oled.begin(&Adafruit128x64, I2C_ADDRESS);
   oled.setFont(Adafruit5x7);
@@ -363,6 +423,7 @@ void setup() {
   sensorCache.forward = 99;
   sensorCache.left = 99;
   sensorCache.right = 99;
+  sensorCache.rear = 0;
   
   strcpy_P(displayLine2, PSTR("Setup complete"));
   updateDisplay();

@@ -25,9 +25,9 @@
 
 import { FW, SIM } from '../config.js';
 
-export const ST = { IDLE: 0, SCANNING: 1, MOVING_FORWARD: 2, OBSTACLE_DETECTED: 3, REVERSING: 4, TURNING: 5 };
-export const STATE_NAMES = ['IDLE', 'SCANNING', 'MOVING_FORWARD', 'OBSTACLE_DETECTED', 'REVERSING', 'TURNING'];
-export const STATE_OLED  = ['IDLE', 'SCAN', 'MOVE FWD', 'OBSTACLE', 'REVERSE', 'TURNING'];
+export const ST = { IDLE: 0, SCANNING: 1, MOVING_FORWARD: 2, OBSTACLE_DETECTED: 3, REAR_BLOCKED: 4, REVERSING: 5, TURNING: 6 };
+export const STATE_NAMES = ['IDLE', 'SCANNING', 'MOVING_FORWARD', 'OBSTACLE_DETECTED', 'REAR_BLOCKED', 'REVERSING', 'TURNING'];
+export const STATE_OLED  = ['IDLE', 'SCAN', 'MOVE FWD', 'OBSTACLE', 'REAR BLK', 'REVERSE', 'TURNING'];
 
 const toInt8 = v => (((Math.trunc(v) % 256) + 384) % 256) - 128;
 
@@ -42,7 +42,7 @@ export class Firmware {
     this.state = ST.SCANNING;
     this.stateStartTime = now;
     this.stateSince = now;
-    this.sensorCache = { forward: 99, left: 99, right: 99, timestamp: 0 };
+    this.sensorCache = { forward: 99, left: 99, right: 99, rear: 0, timestamp: 0 };
     this.scanStep = 0;
     this.stepTime = 0;
     this.lastAngle = 255;              // fastReadSonic() static cache
@@ -101,6 +101,13 @@ export class Firmware {
     else if (cm > FW.SENSOR_MAX_CM) cm = FW.SENSOR_SENTINEL;
     const out = (cm === 0 || cm > FW.SENSOR_MAX_CM) ? FW.SENSOR_SENTINEL : cm;
     return { cm: out, corrected };
+  }
+
+  // --- readRearProximity (.ino:181) — APDS9960, counts (higher = closer) -----
+  readRearProximity() {
+    const counts = this.hal.readRearProximity();
+    this.sensorCache.rear = counts;
+    return counts;
   }
 
   // --- updateSensors (.ino:162-198) ------------------------------------------
@@ -186,10 +193,24 @@ export class Firmware {
         }
         break;
 
-      case ST.OBSTACLE_DETECTED:
+      case ST.OBSTACLE_DETECTED: {
         this.setMotors(0, 0);
-        this._setState(ST.REVERSING, now, 'stop & back off');
+        const rear = this.readRearProximity();
+        if (rear >= FW.REAR_CLEAR_MAX) {
+          this._setState(ST.REAR_BLOCKED, now, `rear prox ${rear} >= ${FW.REAR_CLEAR_MAX}`);
+        } else {
+          this._setState(ST.REVERSING, now, `rear clear (${rear}), backing off`);
+        }
         this.stateStartTime = now;
+        break;
+      }
+
+      case ST.REAR_BLOCKED:
+        this.setMotors(0, 0);   // boxed in front and rear: hold still
+        if (now - this.stateStartTime > FW.REAR_HOLD_MS) {
+          this.readRearProximity();
+          this._setState(ST.SCANNING, now, 're-check both ends');
+        }
         break;
 
       case ST.REVERSING:
@@ -223,7 +244,8 @@ export class Firmware {
     // updateDisplay() every DISPLAY_MS
     if (now - this.lastDisplay > FW.DISPLAY_MS) {
       const l2 = `F:${String(c.forward).padStart(3)} L:${String(c.left).padStart(3)} R:${String(c.right).padStart(3)}`;
-      this.hal.display(['Vasu CarK1', l2, STATE_OLED[this.state]]);
+      const l3 = `${STATE_OLED[this.state]} B:${String(c.rear).padStart(3)}`;
+      this.hal.display(['Vasu CarK1', l2, l3]);
       this.lastDisplay = now;
     }
   }
